@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Participant, SessionRecord } from '@/types';
 import {
@@ -22,7 +22,9 @@ function ParticipantApp() {
   const [isMounted, setIsMounted] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
 
-  // Oturum, Telefon/Sistem Tema Tercihi ve Token Kontrolü
+  const isInitializedRef = useRef(false);
+
+  // Oturum, Telefon/Sistem Tema Tercihi ve Token Kontrolü (Sadece ilk yüklemede ve URL değişiminde)
   useEffect(() => {
     setIsMounted(true);
 
@@ -48,25 +50,30 @@ function ParticipantApp() {
       mediaQuery.addEventListener('change', handleSystemThemeChange);
     }
 
-    // 2. URL'de ?token=... varsa doğrudan katılımcıyı bul ve giriş yap (Magic Link)
-    const tokenParam = searchParams.get('token');
-    if (tokenParam) {
-      const found = findParticipantByToken(tokenParam);
-      if (found) {
-        setStoredParticipant(found);
-        setParticipant(found);
-        setTodaySession(getTodaySessionForParticipant(found.id));
-        setCurrentView('dashboard');
-        return;
-      }
-    }
+    // Sadece ilk açılışta veya Magic Link URL tokenı varsa oturumu yükle (seans oynatıcıdayken dashboard'a geri atmasını önler)
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
 
-    // 3. Hafızada (localStorage) kayıtlı oturum varsa yükle
-    const stored = getStoredParticipant();
-    if (stored) {
-      setParticipant(stored);
-      setTodaySession(getTodaySessionForParticipant(stored.id));
-      setCurrentView('dashboard');
+      // 2. URL'de ?token=... varsa doğrudan katılımcıyı bul ve giriş yap (Magic Link)
+      const tokenParam = searchParams.get('token');
+      if (tokenParam) {
+        const found = findParticipantByToken(tokenParam);
+        if (found) {
+          setStoredParticipant(found);
+          setParticipant(found);
+          setTodaySession(getTodaySessionForParticipant(found.id));
+          setCurrentView('dashboard');
+          return;
+        }
+      }
+
+      // 3. Hafızada (localStorage) kayıtlı oturum varsa yükle
+      const stored = getStoredParticipant();
+      if (stored) {
+        setParticipant(stored);
+        setTodaySession(getTodaySessionForParticipant(stored.id));
+        setCurrentView('dashboard');
+      }
     }
   }, [searchParams]);
 

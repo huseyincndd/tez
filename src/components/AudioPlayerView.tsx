@@ -47,13 +47,52 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isExitConfirmedRef = useRef(false);
+  const isPlayingRef = useRef(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const isFinishedRef = useRef(isFinished);
+  isFinishedRef.current = isFinished;
 
   const isDark = theme === 'dark';
 
-  // Tarayıcı sekme kapatma engeli
+  // 1. Mobil Cihaz Geri Tuşu, Geri Kaydırma (Gesture) ve Tarayıcı Geri Tuşu Koruması (popstate)
+  useEffect(() => {
+    // Sayfa geçmişine bir sanal durum ekle
+    try {
+      window.history.pushState({ inAudioPlayer: true }, '', window.location.href);
+    } catch {
+      // Tarayıcı güvenlik kısıtlaması varsa sessizce geç
+    }
+
+    const handlePopState = () => {
+      if (isExitConfirmedRef.current || isFinishedRef.current) {
+        return;
+      }
+      // Geri tuşuna basıldığında sayfanın hemen kapanmasını önlemek için durumu tekrar it
+      try {
+        window.history.pushState({ inAudioPlayer: true }, '', window.location.href);
+      } catch {}
+
+      // Oynatılan sesi duraklat
+      if (isPlayingRef.current) {
+        ambientSound.pause();
+        setIsPlaying(false);
+      }
+
+      // Şık onay penceresini aç
+      setShowExitConfirm(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
+  // 2. Tarayıcı sekme kapatma / yenileme engeli (beforeunload)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (isPlaying && currentSeconds > 0 && currentSeconds < TARGET_DURATION) {
+      if (isPlaying && currentSeconds > 0 && currentSeconds < TARGET_DURATION && !isExitConfirmedRef.current) {
         e.preventDefault();
         e.returnValue = '';
       }
@@ -128,6 +167,7 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
   };
 
   const handleFinished = () => {
+    isExitConfirmedRef.current = true;
     setIsPlaying(false);
     ambientSound.stop();
     setIsFinished(true);
@@ -142,12 +182,14 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
       }
       setShowExitConfirm(true);
     } else {
+      isExitConfirmedRef.current = true;
       ambientSound.stop();
       onExit();
     }
   };
 
   const handleConfirmExit = () => {
+    isExitConfirmedRef.current = true;
     ambientSound.stop();
     setShowExitConfirm(false);
     // Kısmi dinlenen süreyi veri tabanına kaydet
@@ -350,8 +392,8 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
         </div>
 
         {/* Big Play / Pause Button & Test Shortcut */}
-        <div className="flex items-center justify-center gap-8 pt-2">
-          {/* Big Play / Pause Button */}
+        <div className="relative flex items-center justify-center pt-2 w-full">
+          {/* Big Play / Pause Button - EXACT HORIZONTAL CENTER */}
           <button
             onClick={togglePlay}
             className={`w-20 h-20 rounded-full flex items-center justify-center transition-all duration-300 active:scale-95 shadow-2xl ${
@@ -369,38 +411,38 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
             )}
           </button>
 
-          {/* Demo button to quickly simulate completion */}
+          {/* Demo button positioned on the right without shifting the play button */}
           <button
             onClick={handleFastForwardDemo}
-            className={`p-3 rounded-2xl border text-xs flex flex-col items-center transition-all ${
+            className={`absolute right-0 top-1/2 -translate-y-1/2 p-2.5 rounded-2xl border text-xs flex flex-col items-center transition-all shadow-xs ${
               isDark
                 ? 'bg-[#1e4032]/80 hover:bg-[#285240] text-emerald-200 hover:text-amber-300 border-emerald-600/30'
-                : 'bg-white hover:bg-emerald-50 text-slate-600 hover:text-amber-600 border-emerald-200'
+                : 'bg-white hover:bg-emerald-50 text-slate-600 hover:text-amber-600 border-emerald-200 shadow-2xs'
             }`}
             title="Test: Son 2 saniyeye atla"
           >
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            <span className="text-[9px] mt-0.5 font-bold">Hızlı Test</span>
+            <Sparkles className="w-4 h-4 text-amber-400 mb-0.5" />
+            <span className="text-[10px] font-bold">Hızlı Test</span>
           </button>
         </div>
 
-        {/* Egzersizden Ayrılma / Bilgi Çubuğu */}
-        <div className="flex items-center justify-between pt-1">
-          <p className={`text-[11px] font-medium ${isDark ? 'text-emerald-300/70' : 'text-slate-500'}`}>
+        {/* Egzersizden Ayrılma / Bilgi Çubuğu - Tam Ortalanmış */}
+        <div className="flex flex-col items-center justify-center text-center pt-1.5 space-y-1.5 w-full">
+          <p className={`text-xs text-center font-medium leading-relaxed ${isDark ? 'text-emerald-300/80' : 'text-slate-600'}`}>
             {isPlaying
-              ? '🌿 Egzersiz aktif. Lütfen sakin pozisyonda kalın.'
+              ? '🌿 Egzersiz aktif. Lütfen sakin pozisyonda yönlendirmeye odaklanın.'
               : 'Başlamak için oynat butonuna dokunun.'}
           </p>
 
           {currentSeconds > 0 && !isFinished && (
             <button
               onClick={handleRequestExit}
-              className={`text-[11px] font-semibold flex items-center gap-1 transition-all ${
+              className={`text-[11px] font-semibold inline-flex items-center gap-1 transition-all ${
                 isDark ? 'text-emerald-400 hover:text-emerald-200' : 'text-emerald-800 hover:text-emerald-950'
               } underline underline-offset-2`}
             >
               <LogOut className="w-3 h-3" />
-              <span>Erken Ayrıl</span>
+              <span>Erken Ayrıl ve Kaydet</span>
             </button>
           )}
         </div>
@@ -504,6 +546,7 @@ export const AudioPlayerView: React.FC<AudioPlayerViewProps> = ({
 
             <button
               onClick={() => {
+                isExitConfirmedRef.current = true;
                 ambientSound.stop();
                 onComplete();
               }}

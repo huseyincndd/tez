@@ -5,7 +5,7 @@ const PARTICIPANTS_STORAGE_KEY = 'tez_participants_list_v2';
 const CURRENT_USER_KEY = 'tez_current_participant';
 const SESSIONS_STORAGE_KEY = 'tez_session_records_v2';
 const ADMIN_AUTH_KEY = 'tez_admin_authenticated';
-const MOCK_SEEDED_VERSION_KEY = 'tez_rich_mock_version_v4';
+const MOCK_SEEDED_VERSION_KEY = 'tez_rich_mock_version_v7';
 
 // ================= ADMIN AUTH =================
 export function isAdminLoggedIn(): boolean {
@@ -155,20 +155,102 @@ export function getAllSessions(): Record<string, SessionRecord> {
 
   // Bugün ve Dün için zengin mock verilerin varlığını kontrol et ve güncelle
   const currentVersion = localStorage.getItem(MOCK_SEEDED_VERSION_KEY);
-  if (currentVersion !== 'v4') {
+  if (currentVersion !== 'v7') {
     const seedData = seedInitialSessions();
-    sessions = { ...seedData, ...sessions }; // Kullanıcının yeni oturumlarını ezmeden mockları zenginleştir
+    sessions = { ...seedData, ...sessions }; // Mockları zenginleştir
+    const today = getTodayKey();
+
+    // 1. Test hesapları için BUGÜN (18 Eylül): 1. Oturum dinlenmiş, 2. Oturum dinlenmemiş
+    sessions[`DE-01_${today}`] = {
+      participantId: 'DE-01',
+      date: today,
+      session1Completed: true,
+      session1CompletedAt: '09:15',
+      session1Duration: 720,
+      session2Completed: false,
+      session2Duration: 0,
+    };
+    sessions[`KG-01_${today}`] = {
+      participantId: 'KG-01',
+      date: today,
+      session1Completed: true,
+      session1CompletedAt: '08:45',
+      session1Duration: 720,
+      session2Completed: false,
+      session2Duration: 0,
+    };
+
+    // 2. Haftalık Seans Zinciri: Pazartesi (14 Eylül) ve Salı (15 Eylül)
+    const now = new Date();
+    const currentDay = now.getDay();
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    const mondayDate = new Date(now);
+    mondayDate.setDate(now.getDate() + distanceToMonday);
+    const mondayKey = `${mondayDate.getFullYear()}-${String(mondayDate.getMonth() + 1).padStart(2, '0')}-${String(mondayDate.getDate()).padStart(2, '0')}`;
+    const tuesdayDate = new Date(mondayDate);
+    tuesdayDate.setDate(mondayDate.getDate() + 1);
+    const tuesdayKey = `${tuesdayDate.getFullYear()}-${String(tuesdayDate.getMonth() + 1).padStart(2, '0')}-${String(tuesdayDate.getDate()).padStart(2, '0')}`;
+
+    // DE-01: Pazartesi ve Salı'yı tamamlamış
+    const deMonday = {
+      participantId: 'DE-01',
+      date: mondayKey,
+      session1Completed: true,
+      session1CompletedAt: '09:30',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '18:15',
+      session2Duration: 720,
+    };
+    sessions[`DE-01_${mondayKey}`] = deMonday;
+    sessions['DE-01_2026-09-14'] = { ...deMonday, date: '2026-09-14' };
+
+    const deTuesday = {
+      participantId: 'DE-01',
+      date: tuesdayKey,
+      session1Completed: true,
+      session1CompletedAt: '10:00',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '19:20',
+      session2Duration: 720,
+    };
+    sessions[`DE-01_${tuesdayKey}`] = deTuesday;
+    sessions['DE-01_2026-09-15'] = { ...deTuesday, date: '2026-09-15' };
+
+    // KG-01: Sadece Pazartesi'yi tamamlamış
+    const kgMonday = {
+      participantId: 'KG-01',
+      date: mondayKey,
+      session1Completed: true,
+      session1CompletedAt: '08:45',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '20:15',
+      session2Duration: 720,
+    };
+    sessions[`KG-01_${mondayKey}`] = kgMonday;
+    sessions['KG-01_2026-09-14'] = { ...kgMonday, date: '2026-09-14' };
+
+    // KG-01 Salı, Çarşamba, Perşembe tamamlanmamış
+    delete sessions[`KG-01_${tuesdayKey}`];
+    delete sessions['KG-01_2026-09-15'];
+
+    // Dün (Perşembe) test hesapları için boş (çünkü haftalık zincirde sadece Pzt/Sal istendi)
+    const yesterday = getYesterdayKey();
+    delete sessions[`DE-01_${yesterday}`];
+    delete sessions[`KG-01_${yesterday}`];
+
     localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(sessions));
-    localStorage.setItem(MOCK_SEEDED_VERSION_KEY, 'v4');
+    localStorage.setItem(MOCK_SEEDED_VERSION_KEY, 'v7');
   } else {
     // Tarih değiştiğinde bugünün ve dünün mocklarının daima hazır bulunmasını sağla
     const today = getTodayKey();
-    const yesterday = getYesterdayKey();
     let hasChanges = false;
 
     const seedData = seedInitialSessions();
     for (const [key, record] of Object.entries(seedData)) {
-      if (!sessions[key] || (key.includes(today) && !sessions[key].session1Completed && sessions[key].session1Duration === 0)) {
+      if (!sessions[key]) {
         sessions[key] = record;
         hasChanges = true;
       }
@@ -242,19 +324,44 @@ function seedInitialSessions(): Record<string, SessionRecord> {
 
   const records: Record<string, SessionRecord> = {
     // ==========================================
-    // 1. DÜNKÜ SEANSLAR (Geniş Uyum & Kısmi Veriler)
+    // 0. HAFTALIK SEANS ZİNCİRİ (14 - 15 Eylül)
     // ==========================================
-    // DE-01: Tam Uyum (2/2)
-    [`DE-01_${yesterday}`]: {
+    // DE-01: Pazartesi ve Salı'yı tamamlamış
+    'DE-01_2026-09-14': {
       participantId: 'DE-01',
-      date: yesterday,
+      date: '2026-09-14',
       session1Completed: true,
-      session1CompletedAt: '09:12',
+      session1CompletedAt: '09:30',
       session1Duration: 720,
       session2Completed: true,
-      session2CompletedAt: '18:40',
+      session2CompletedAt: '18:15',
       session2Duration: 720,
     },
+    'DE-01_2026-09-15': {
+      participantId: 'DE-01',
+      date: '2026-09-15',
+      session1Completed: true,
+      session1CompletedAt: '10:00',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '19:20',
+      session2Duration: 720,
+    },
+    // KG-01: Sadece Pazartesi'yi tamamlamış
+    'KG-01_2026-09-14': {
+      participantId: 'KG-01',
+      date: '2026-09-14',
+      session1Completed: true,
+      session1CompletedAt: '08:45',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '20:15',
+      session2Duration: 720,
+    },
+
+    // ==========================================
+    // 1. DÜNKÜ SEANSLAR (Geniş Uyum & Kısmi Veriler)
+    // ==========================================
     // DE-02: Tam Uyum (2/2)
     [`DE-02_${yesterday}`]: {
       participantId: 'DE-02',
@@ -329,17 +436,6 @@ function seedInitialSessions(): Record<string, SessionRecord> {
       session1Duration: 360,
       session2Completed: false,
       session2Duration: 0,
-    },
-    // KG-01: Tam Uyum (2/2)
-    [`KG-01_${yesterday}`]: {
-      participantId: 'KG-01',
-      date: yesterday,
-      session1Completed: true,
-      session1CompletedAt: '08:45',
-      session1Duration: 720,
-      session2Completed: true,
-      session2CompletedAt: '20:15',
-      session2Duration: 720,
     },
     // KG-02: Tam Uyum (2/2)
     [`KG-02_${yesterday}`]: {
@@ -420,16 +516,15 @@ function seedInitialSessions(): Record<string, SessionRecord> {
     // ==========================================
     // 2. BUGÜNKÜ SEANSLAR (Günün Akışı & Gerçekçi Durumlar)
     // ==========================================
-    // DE-01: Sabah & Akşam her ikisini de bitirdi (Tam Uyum 2/2)
+    // DE-01: TEST HESABI - Bugün 1. Oturum dinlenmiş, 2. Oturum dinlenmemiş (18 Eylül)
     [`DE-01_${today}`]: {
       participantId: 'DE-01',
       date: today,
       session1Completed: true,
       session1CompletedAt: '09:15',
       session1Duration: 720,
-      session2Completed: true,
-      session2CompletedAt: '16:30',
-      session2Duration: 720,
+      session2Completed: false,
+      session2Duration: 0,
     },
     // DE-02: 1. Oturum tamamlandı (Sabah), 2. Oturum henüz yapılmadı
     [`DE-02_${today}`]: {
@@ -492,16 +587,26 @@ function seedInitialSessions(): Record<string, SessionRecord> {
       session2Completed: false,
       session2Duration: 0,
     },
-    // KG-01: Her iki oturumu tamamladı (Tam Uyum 2/2)
+    // DE-10: Her iki oturumu tamamladı (Tam Uyum 2/2)
+    [`DE-10_${today}`]: {
+      participantId: 'DE-10',
+      date: today,
+      session1Completed: true,
+      session1CompletedAt: '09:30',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '17:00',
+      session2Duration: 720,
+    },
+    // KG-01: TEST HESABI - Bugün 1. Oturum dinlenmiş, 2. Oturum dinlenmemiş (18 Eylül)
     [`KG-01_${today}`]: {
       participantId: 'KG-01',
       date: today,
       session1Completed: true,
-      session1CompletedAt: '08:15',
+      session1CompletedAt: '08:45',
       session1Duration: 720,
-      session2Completed: true,
-      session2CompletedAt: '16:00',
-      session2Duration: 720,
+      session2Completed: false,
+      session2Duration: 0,
     },
     // KG-02: 1. Oturumu tamamladı
     [`KG-02_${today}`]: {
@@ -553,6 +658,17 @@ function seedInitialSessions(): Record<string, SessionRecord> {
       session1Duration: 720,
       session2Completed: true,
       session2CompletedAt: '18:20',
+      session2Duration: 720,
+    },
+    // KG-08: Her iki oturumu tamamladı (Tam Uyum 2/2)
+    [`KG-08_${today}`]: {
+      participantId: 'KG-08',
+      date: today,
+      session1Completed: true,
+      session1CompletedAt: '09:15',
+      session1Duration: 720,
+      session2Completed: true,
+      session2CompletedAt: '17:45',
       session2Duration: 720,
     },
   };

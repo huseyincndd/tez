@@ -3,6 +3,7 @@
 import React from 'react';
 import { Participant, SessionRecord } from '@/types';
 import { AUDIO_TRACKS, formatTurkishDate } from '@/lib/mockData';
+import { getSession } from '@/lib/storage';
 import {
   LogOut,
   Play,
@@ -45,6 +46,48 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const isAttention = participant.group === 'dikkat';
   const isDark = theme === 'dark';
+
+  // Haftalık Seans Zinciri (Pazartesi 14 Eylül - Pazar 20 Eylül)
+  const getWeeklyChain = () => {
+    const todayKey = todaySession.date;
+    const now = new Date();
+    const currentDay = now.getDay();
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + distanceToMonday);
+
+    const dayLabels = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+
+    return dayLabels.map((dayName, index) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + index);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayNum = String(d.getDate()).padStart(2, '0');
+      const dateKey = `${y}-${m}-${dayNum}`;
+
+      const s = getSession(participant.id, dateKey);
+      const isToday = dateKey === todayKey || index === 4; // Cuma (18 Eylül)
+      const isDone = isToday
+        ? todaySession.session1Completed && todaySession.session2Completed
+        : s.session1Completed && s.session2Completed;
+      const isPartial = isToday
+        ? (todaySession.session1Completed || todaySession.session2Completed) && !isDone
+        : (s.session1Completed || s.session2Completed) && !isDone;
+
+      return {
+        dayName,
+        dayNum,
+        dateKey,
+        isToday,
+        isDone,
+        isPartial,
+      };
+    });
+  };
+
+  const weeklyDays = getWeeklyChain();
+  const activeDaysCount = weeklyDays.filter((d) => d.isDone).length;
 
   return (
     <div
@@ -463,37 +506,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   : 'text-emerald-900 bg-emerald-50 border border-emerald-200'
               }`}
             >
-              Son 7 Gün
+              {activeDaysCount} Gün Tamamlandı
             </span>
           </div>
 
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2 text-center">
-            {['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'].map((day, i) => {
-              const isToday = i === 2; // Çarşamba sample
-              const isDone = i <= 2 && completedCount > 0;
-              return (
-                <div key={day} className="flex flex-col items-center gap-1.5">
-                  <span className={`text-[10px] font-extrabold ${isDark ? 'text-emerald-300/70' : 'text-slate-500'}`}>
-                    {day}
-                  </span>
-                  <div
-                    className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-extrabold transition-all shadow-2xs ${
-                      isDone
-                        ? 'bg-emerald-600 text-white shadow-emerald-950/20'
-                        : isToday
-                        ? isDark
-                          ? 'bg-emerald-900/80 text-emerald-200 border-2 border-emerald-400 ring-2 ring-emerald-500/20'
-                          : 'bg-emerald-100 text-emerald-900 border-2 border-emerald-500 ring-2 ring-emerald-500/20'
-                        : isDark
-                        ? 'bg-[#132c20] text-emerald-700/50 border border-emerald-900/60'
-                        : 'bg-slate-100 text-slate-400 border border-slate-200'
-                    }`}
-                  >
-                    {isDone ? '✓' : '•'}
-                  </div>
+            {weeklyDays.map((item) => (
+              <div key={item.dayName} className="flex flex-col items-center gap-1.5">
+                <span
+                  className={`text-[10px] font-extrabold ${
+                    item.isToday
+                      ? isDark
+                        ? 'text-emerald-300 font-black'
+                        : 'text-emerald-800 font-black'
+                      : isDark
+                      ? 'text-emerald-300/70'
+                      : 'text-slate-500'
+                  }`}
+                >
+                  {item.dayName}
+                </span>
+                <div
+                  className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-extrabold transition-all shadow-2xs ${
+                    item.isDone
+                      ? 'bg-emerald-600 text-white shadow-emerald-950/20 font-bold'
+                      : item.isToday
+                      ? isDark
+                        ? 'bg-emerald-900/80 text-emerald-200 border-2 border-emerald-400 ring-2 ring-emerald-500/20'
+                        : 'bg-emerald-100 text-emerald-900 border-2 border-emerald-500 ring-2 ring-emerald-500/20'
+                      : item.isPartial
+                      ? isDark
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                        : 'bg-emerald-100/70 text-emerald-800 border border-emerald-300'
+                      : isDark
+                      ? 'bg-[#132c20] text-emerald-700/50 border border-emerald-900/60'
+                      : 'bg-slate-100 text-slate-400 border border-slate-200'
+                  }`}
+                  title={`${item.dayName} (${item.dateKey}): ${
+                    item.isDone ? 'Tamamlandı (2/2)' : item.isPartial ? '1. Oturum Dinlendi (1/2)' : 'Dinlenmedi (0/2)'
+                  }`}
+                >
+                  {item.isDone ? '✓' : item.isPartial ? '½' : '•'}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </div>
 
